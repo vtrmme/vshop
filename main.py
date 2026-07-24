@@ -26,12 +26,9 @@ client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
 # --- IDs de Configuración Generales ---
-# (Se eliminó ROLE_VERIFY_ID ya que ahora es dinámico)
 WELCOME_CH_ID = 1528749785895538849
 LEAVE_CH_ID = 1528750006260072621
 INVITE_CH_ID = 1528750567738839150
-SHOP_TICKET_CH_ID = 1528754922730815650
-SUPPORT_TICKET_CH_ID = 1528755577658937476
 
 @client.event
 async def on_ready():
@@ -63,7 +60,7 @@ async def verify(interaction: discord.Interaction, rol: discord.Role):
     if interaction.guild.icon:
         embed.set_thumbnail(url=interaction.guild.icon.url)
     
-    # Guardamos la ID del rol en el footer para recuperarlo en la reacción
+    # Guardamos la ID del rol en el footer
     embed.set_footer(text=f"Seguridad de VSHOP | RoleID:{rol.id}")
     
     await interaction.response.send_message(f"Panel de verificación creado para el rol {rol.mention}.", ephemeral=True)
@@ -76,7 +73,6 @@ async def verify(interaction: discord.Interaction, rol: discord.Role):
 # --- ROL POR REACCIÓN DINÁMICO ---
 @client.event
 async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
-    # Ignorar reacciones del propio bot
     if payload.user_id == client.user.id:
         return
         
@@ -94,12 +90,10 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
         except Exception:
             return
 
-        # Verificar si el mensaje tiene un embed con la firma del rol
         if message.embeds:
             embed = message.embeds[0]
             if embed.footer and embed.footer.text and "RoleID:" in embed.footer.text:
                 try:
-                    # Extraer el ID del rol desde el pie de página
                     role_id = int(embed.footer.text.split("RoleID:")[1])
                     role = guild.get_role(role_id)
                     member = guild.get_member(payload.user_id)
@@ -154,7 +148,7 @@ async def ad(interaction: discord.Interaction, titulo: str, descripcion: str):
     await interaction.response.send_message("Anuncio enviado.", ephemeral=True)
     await interaction.channel.send(content="@everyone", embed=embed)
 
-# --- SISTEMA DE TICKETS (MEJORADO Y DINÁMICO) ---
+# --- SISTEMA DE TICKETS DINÁMICO ---
 class TicketButton(discord.ui.View):
     def __init__(self, ticket_type: str):
         super().__init__(timeout=None)
@@ -184,7 +178,7 @@ class TicketButton(discord.ui.View):
         
         embed = discord.Embed(
             title=f"🎟️ Ticket de {self.ticket_type.capitalize()}",
-            description=f"Hola {member.mention}, detalla tu consulta aquí. Un asesor te atenderá pronto.",
+            description=f"Hola {member.mention}, detalla tu consulta o postulación aquí. Un encargado te atenderá pronto.",
             color=discord.Color.green()
         )
         
@@ -202,16 +196,15 @@ class TicketButton(discord.ui.View):
         await ticket_channel.send(embed=embed, view=close_view)
         await interaction.response.send_message(f"✅ Ticket creado en {ticket_channel.mention}", ephemeral=True)
 
-
-# --- NUEVO COMANDO /SETUP_TICKETS DINÁMICO ---
 @tree.command(name="setup_tickets", description="Crea un panel de tickets personalizado en un canal específico")
 @app_commands.describe(
     titulo="El título que tendrá el panel del ticket",
     descripcion="La descripción o instrucciones dentro del panel",
     canal="El canal donde se enviará el panel",
-    tipo="Categoría del ticket (Ej: soporte, compras, dudas)"
+    tipo="Categoría del ticket (Ej: postulación, compras, soporte)"
 )
 @app_commands.choices(tipo=[
+    app_commands.Choice(name="📜 Postulaciones / Reclutamiento", value="postulacion"),
     app_commands.Choice(name="🛒 Compras / Ventas", value="compras"),
     app_commands.Choice(name="🛠️ Soporte Técnico", value="soporte"),
     app_commands.Choice(name="❓ Consultas Generales", value="general")
@@ -234,14 +227,8 @@ async def setup_tickets(
     
     embed.set_footer(text=f"Sistema de Tickets — {interaction.guild.name}")
 
-    # Enviamos el panel al canal especificado con su botón correspondiente
     await canal.send(embed=embed, view=TicketButton(ticket_type=tipo.value))
-    
-    # Confirmación opaca (ephemeral) solo para ti
-    await interaction.response.send_message(
-        f"✅ Panel de tickets publicado exitosamente en {canal.mention}", 
-        ephemeral=True
-    )
+    await interaction.response.send_message(f"✅ Panel de tickets publicado exitosamente en {canal.mention}", ephemeral=True)
 
 # --- EJECUCIÓN ---
 TOKEN = os.getenv("DISCORD_TOKEN")
