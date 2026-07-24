@@ -154,7 +154,7 @@ async def ad(interaction: discord.Interaction, titulo: str, descripcion: str):
     await interaction.response.send_message("Anuncio enviado.", ephemeral=True)
     await interaction.channel.send(content="@everyone", embed=embed)
 
-# --- SISTEMA DE TICKETS ---
+# --- SISTEMA DE TICKETS (MEJORADO Y DINÁMICO) ---
 class TicketButton(discord.ui.View):
     def __init__(self, ticket_type: str):
         super().__init__(timeout=None)
@@ -164,7 +164,7 @@ class TicketButton(discord.ui.View):
     async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         guild = interaction.guild
         member = interaction.user
-        category_name = "🛒 TICKETS VENTA" if self.ticket_type == "compras" else "🛠️ TICKETS SOPORTE"
+        category_name = f"🎟️ TICKETS {self.ticket_type.upper()}"
         
         category = discord.utils.get(guild.categories, name=category_name)
         if not category:
@@ -176,7 +176,11 @@ class TicketButton(discord.ui.View):
             client.user: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
         
-        ticket_channel = await guild.create_text_channel(name=f"{self.ticket_type}-{member.name}", category=category, overwrites=overwrites)
+        ticket_channel = await guild.create_text_channel(
+            name=f"{self.ticket_type.lower()}-{member.name}", 
+            category=category, 
+            overwrites=overwrites
+        )
         
         embed = discord.Embed(
             title=f"🎟️ Ticket de {self.ticket_type.capitalize()}",
@@ -198,22 +202,46 @@ class TicketButton(discord.ui.View):
         await ticket_channel.send(embed=embed, view=close_view)
         await interaction.response.send_message(f"✅ Ticket creado en {ticket_channel.mention}", ephemeral=True)
 
-@tree.command(name="setup_tickets", description="Inicializa los paneles de tickets")
+
+# --- NUEVO COMANDO /SETUP_TICKETS DINÁMICO ---
+@tree.command(name="setup_tickets", description="Crea un panel de tickets personalizado en un canal específico")
+@app_commands.describe(
+    titulo="El título que tendrá el panel del ticket",
+    descripcion="La descripción o instrucciones dentro del panel",
+    canal="El canal donde se enviará el panel",
+    tipo="Categoría del ticket (Ej: soporte, compras, dudas)"
+)
+@app_commands.choices(tipo=[
+    app_commands.Choice(name="🛒 Compras / Ventas", value="compras"),
+    app_commands.Choice(name="🛠️ Soporte Técnico", value="soporte"),
+    app_commands.Choice(name="❓ Consultas Generales", value="general")
+])
 @app_commands.checks.has_permissions(administrator=True)
-async def setup_tickets(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
+async def setup_tickets(
+    interaction: discord.Interaction, 
+    titulo: str, 
+    descripcion: str, 
+    canal: discord.TextChannel,
+    tipo: app_commands.Choice[str]
+):
+    embed = discord.Embed(
+        title=titulo, 
+        description=descripcion, 
+        color=discord.Color.purple()
+    )
+    if interaction.guild.icon:
+        embed.set_thumbnail(url=interaction.guild.icon.url)
     
-    shop_channel = client.get_channel(SHOP_TICKET_CH_ID)
-    if shop_channel:
-        embed = discord.Embed(title="🛒 TIENDA VSHOP — COMPRAS", description="Abre un ticket pulsando abajo.", color=discord.Color.purple())
-        await shop_channel.send(embed=embed, view=TicketButton(ticket_type="compras"))
-        
-    support_channel = client.get_channel(SUPPORT_TICKET_CH_ID)
-    if support_channel:
-        embed = discord.Embed(title="🛠️ CENTRO DE SOPORTE — VSHOP", description="Abre un ticket pulsando abajo.", color=discord.Color.orange())
-        await support_channel.send(embed=embed, view=TicketButton(ticket_type="soporte"))
-        
-    await interaction.followup.send("Paneles listos.", ephemeral=True)
+    embed.set_footer(text=f"Sistema de Tickets — {interaction.guild.name}")
+
+    # Enviamos el panel al canal especificado con su botón correspondiente
+    await canal.send(embed=embed, view=TicketButton(ticket_type=tipo.value))
+    
+    # Confirmación opaca (ephemeral) solo para ti
+    await interaction.response.send_message(
+        f"✅ Panel de tickets publicado exitosamente en {canal.mention}", 
+        ephemeral=True
+    )
 
 # --- EJECUCIÓN ---
 TOKEN = os.getenv("DISCORD_TOKEN")
