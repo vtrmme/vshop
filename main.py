@@ -2,6 +2,8 @@ import os
 import discord
 from discord import app_commands
 import asyncio
+import io
+from datetime import datetime
 from http.server import SimpleHTTPRequestHandler
 from socketserver import TCPServer
 from threading import Thread
@@ -60,7 +62,6 @@ async def verify(interaction: discord.Interaction, rol: discord.Role):
     if interaction.guild.icon:
         embed.set_thumbnail(url=interaction.guild.icon.url)
     
-    # Guardamos la ID del rol en el footer
     embed.set_footer(text=f"Seguridad de VSHOP | RoleID:{rol.id}")
     
     await interaction.response.send_message(f"Panel de verificación creado para el rol {rol.mention}.", ephemeral=True)
@@ -124,7 +125,7 @@ async def on_member_join(member: discord.Member):
             description=f"El usuario {member.name} (`{member.id}`) entró al servidor.",
             color=discord.Color.light_gray()
         )
-        await invite_channel.send(embed=embed_inv)
+        await invite_channel.send(embed_inv)
 
 @client.event
 async def on_member_remove(member: discord.Member):
@@ -148,7 +149,19 @@ async def ad(interaction: discord.Interaction, titulo: str, descripcion: str):
     await interaction.response.send_message("Anuncio enviado.", ephemeral=True)
     await interaction.channel.send(content="@everyone", embed=embed)
 
-# --- SISTEMA DE TICKETS DINÁMICO ---
+# --- FUNCIÓN AUXILIAR PARA OBTENER O CREAR EL CANAL DE TRANSCRIPTS ---
+async def get_or_create_transcript_channel(guild: discord.Guild) -> discord.TextChannel:
+    channel_name = "📑-transcripts"
+    channel = discord.utils.get(guild.text_channels, name=channel_name)
+    if not channel:
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        }
+        channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
+    return channel
+
+# --- SISTEMA DE TICKETS CON TRANSCRIPTS ---
 class TicketButton(discord.ui.View):
     def __init__(self, ticket_type: str):
         super().__init__(timeout=None)
@@ -186,7 +199,46 @@ class TicketButton(discord.ui.View):
         close_button = discord.ui.Button(label="🔒 Cerrar Ticket", style=discord.ButtonStyle.danger)
         
         async def close_callback(inter: discord.Interaction):
-            await inter.response.send_message("Cerrando canal...")
+            await inter.response.send_message("📄 Generando transcript y cerrando ticket...")
+            
+            # --- GENERACIÓN DEL TRANSCRIPT ---
+            messages = []
+            async for msg in inter.channel.history(limit=500, oldest_first=True):
+                time_str = msg.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                content = msg.content if msg.content else "[Sin texto / Embed o Archivo]"
+                messages.append(f"[{time_str}] {msg.author} ({msg.author.id}): {content}")
+            
+            transcript_text = "\n".join(messages)
+            file_data = io.BytesIO(transcript_text.encode('utf-8'))
+            file_name = f"transcript-{inter.channel.name}.txt"
+            
+            # --- EMBED DEL TRANSCRIPT ---
+            embed_transcript = discord.Embed(
+                title="📑 Transcript de Ticket Cerrado",
+                color=discord.Color.blue(),
+                timestamp=datetime.utcnow()
+            )
+            embed_transcript.add_field(name="Ticket", value=inter.channel.name, inline=True)
+            embed_transcript.add_field(name="Cerrado por", value=inter.user.mention, inline=True)
+            embed_transcript.add_field(name="Usuario del ticket", value=member.mention, inline=True)
+            
+            # 1. Enviar al canal #📑-transcripts
+            logs_channel = await get_or_create_transcript_channel(guild)
+            file_logs = discord.File(file_data, filename=file_name)
+            await logs_channel.send(embed=embed_transcript, file=file_logs)
+            
+            # 2. Enviar por MD (Mensaje Directo) al creador del ticket
+            try:
+                file_dm = discord.File(io.BytesIO(transcript_text.encode('utf-8')), filename=file_name)
+                embed_dm = discord.Embed(
+                    title="📑 Copia de tu Ticket — VSHOP",
+                    description=f"Tu ticket en **{guild.name}** ha sido cerrado. Aquí tienes la copia completa del chat.",
+                    color=discord.Color.green()
+                )
+                await member.send(embed=embed_dm, file=file_dm)
+            except Exception:
+                print(f"No se pudo enviar el DM a {member.name} (MD cerrados).")
+                
             await asyncio.sleep(3)
             await inter.channel.delete()
             
